@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>ゴミ箱シュート</title>
+<script src="three.js"></script>
+<script src="cannon.js"></script>
+<script>
+let scene, camera, renderer;            //シーン、カメラ、レンダラー
+let width, height, world;               //幅、高さ、物理ワールド
+let balls = new Array();                //ボール
+let power = 10, status = "ready";       //パワー、ステータス（ready/dharge)
+const trash = new Array(4);             //ゴミ箱
+let[tx, tz] = [0, 0];                   //ゴミ箱の位置
+let cnt = 0, success = 0;               //ボールを投げた回数、入った回数
+const [cx, cy, cz] = [8, 7, 10], w = 2.5; //カメラの位置、ゴミ箱の大きさ
+
+const init = () => {
+    //画面サイズを取得（幅と高さを補正）
+    width = widow.innerWidth - 20;
+    height = window.innerHeight - 120;
+    //シーン、カメラ、レンダラー、ライト（平行光源、環境光）
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(60, width/height, 1, 100);
+    camera.position.set(cx, cy, cz);                                //カメラの位置
+    camera.lookAt(new THREE.Vector3(0, 5, 0);                       //カメラは中央やや上を向く
+    renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(width, height);
+    renderer.shadowMap.enabled = true;
+    document.getElementById("renderArea").appendChild(renderer.domElement);     //描画エリア
+    const light = new THREE.DirectionalLight("#FFFFFF");                        //白色の平行光源
+    light.position.set(25, 20, 10);
+    light.castShadow = true;                                        //影を落とす
+    light.shadow.camera.top = 20;                                   //影の描画範囲を広くする
+    light.shadow.camera.bottom = -20;
+    light.shadow.camera.left = -20;
+    light.shadow.camera.right = 20;
+    light.shadow.mapSize.width = 2048;                              //影の描画を細かくする
+    light.shadow.mapSize.height = 2048;
+    scene.add(light);
+    const ambientLight = new THREE.AmbientLight("#333333");         //濃いグレーの環境光
+    scene.add(ambientLight);
+    //物理ワールドの設定
+    world = new CANNON.World();
+    world.gravity.set(0, -9.8, 0);                                  //重力加速度を設定
+    worldbroadphase = new CANNON.NativeBroadphase();
+    world.allowSleep = true;                                        //物体が動かないようにする
+    //部屋の作成
+    createObject("box", 0, 0.5, 0, 20, 1, 20, "#FFCC99");           //四角い板で部屋を作る。床は薄いオレンジ、奥の壁は薄い緑、床の囲いは茶
+    createObject("box", -10, 10, 0, 1, 20, 20, "#CCFFCC");
+    createObject("box", 0, 10, -10, 20, 20, 1, "#CCFFCC");
+    createObject("box", 10, 1, 0, 1, 1, 20, "#996633");
+    createObject("box", 0, 1, 10, 20, 1, 1, "#996633");
+    //ゴミ箱の作成
+    trash[0] = createObject("box",tx, 2.5, tz-w/2, w, 3, 0.1, "#33CCFF");   //四角い板でゴミ箱を作る　色は水色
+    trash[1] = createObject("box",tx, 2.5, tz+w/2, w, 3, 0.1, "#33CCFF");
+    trash[2] = createObject("box",tx+w/2, 2.5, tz, 0.1, 3, w, "#33CCFF");
+    trash[3] = createObject("box",tx-w/2, 2.5, tz, 0.1, 3, 2, "#33CCFF");
+    //マウスイベントの登録
+    renderer.domElement.addEventListener("mousedown", startCharge);
+
+
+}

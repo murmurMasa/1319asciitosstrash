@@ -17,13 +17,13 @@ const [cx, cy, cz] = [8, 7, 10], w = 2.5; //カメラの位置、ゴミ箱の大
 
 const init = () => {
     //画面サイズを取得（幅と高さを補正）
-    width = widow.innerWidth - 20;
+    width = window.innerWidth - 20;
     height = window.innerHeight - 120;
     //シーン、カメラ、レンダラー、ライト（平行光源、環境光）
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(60, width/height, 1, 100);
     camera.position.set(cx, cy, cz);                                //カメラの位置
-    camera.lookAt(new THREE.Vector3(0, 5, 0);                       //カメラは中央やや上を向く
+    camera.lookAt(new THREE.Vector3(0, 5, 0));                       //カメラは中央やや上を向く
     renderer = new THREE.WebGLRenderer({antialias:true});
     renderer.setSize(width, height);
     renderer.shadowMap.enabled = true;
@@ -43,7 +43,7 @@ const init = () => {
     //物理ワールドの設定
     world = new CANNON.World();
     world.gravity.set(0, -9.8, 0);                                  //重力加速度を設定
-    worldbroadphase = new CANNON.NativeBroadphase();
+    world.broadphase = new CANNON.NaiveBroadphase();
     world.allowSleep = true;                                        //物体が動かないようにする
     //部屋の作成
     createObject("box", 0, 0.5, 0, 20, 1, 20, "#FFCC99");           //四角い板で部屋を作る。床は薄いオレンジ、奥の壁は薄い緑、床の囲いは茶
@@ -58,6 +58,127 @@ const init = () => {
     trash[3] = createObject("box",tx-w/2, 2.5, tz, 0.1, 3, 2, "#33CCFF");
     //マウスイベントの登録
     renderer.domElement.addEventListener("mousedown", startCharge);
-
-
+    renderer.domElement.addEventListener("mouseup", toss);
+    renderer.domElement.addEventListener("mousemove", moveCamera);
+    renderer.domElement.style.cursor = "crosshair";                         //カーソルを十字型に
+    //物理ワールドの更新＋描画
+    update();
 }
+
+const createObject = (type, x, y, z, a, b, c, color, mass = 0) =>  {        //massが0（デフォルト値）の物体は重力の影響を受けない
+    //表示用オブジェクトの作成
+    let geometry = new THREE.BoxGeometry(a, b, c);                          //幅ａ、高さｂ、奥行きｃの直方体を作成
+    if(type == "sphere") {
+        geometry = new THREE.SphereGeometry(a, 24, 24);                     //半径ａ、水平垂直方向の分割数２４の球を作成
+    }
+    const material = new THREE.MeshLambertMaterial({color:color});          //光沢のない物体
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);                                             //物体の位置
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    //物理用オブジェクトの作成
+    const body = new CANNON.Body({mass:mass});
+    if(type == "box") {
+        body.addShape(new CANNON.Box(new CANNON.Vec3(a/2, b/2, c/2)));      //直方体
+    } else if (type == "sphere") {
+        body.addShape(new CANNON.Sphere(a));                                //球
+    }
+    body.position.set(x, y, z);
+    world.addBody(body);
+    return{"mesh":mesh, "body":body};
+}
+
+const setTrash = () => {
+    //ボールを削除
+    for (const ball of balls) {
+        scene.remove(ball.mesh);
+        ball.mesh.material.dispose();
+        ball.mesh.geometry.dispose();
+        world.removeBody(ball.body);
+    }
+    balls = [];
+    //ゴミ箱の位置を変更
+    [tx, tz] = [Math.random() * -8, Math.random() *16 -8];        //txは、-8～0の間の乱数　tzは、-8～8の間の乱数
+    trash[0].body.position.set(tx, 2.5, tz-w/2);                  //ゴミ箱の4面を配置
+    trash[1].body.position.set(tx, 2.5, tz+w/2);
+    trash[2].body.position.set(tx+w/2, 2.5, tz);
+    trash[3].body.position.set(tx-w/2, 2.5, tz);
+    for (let i=0; i<4; i++) {
+        trash[i].mesh.position.copy(trash[i].body.position);    //物理ワールドのゴミ箱の位置を表示用の3D空間にコピー
+    }
+}
+
+const update = () => {
+    //ボールの移動、判定
+    for (const ball of balls) {
+        ball.mesh.position.copy(ball.body.position);            //物理ワールドのボールの位置と傾きを表示用の3d空間にコピー
+        ball.mesh.quaternion.copy(ball.body.quaternion);
+        const pos = ball.mesh.position;
+        if((pos.x > tx-w/2)&&(pos.x < tx+w/2)&&(pos.y < 1.5)
+        &&(pos.z > tz-w/2)&&(pos.z < tz+w/2)) {
+        setTrash();
+        success++;
+        }
+    }
+    document.getElementById("cnt").innerText = `${success}/${cnt}`;     //ボールカウントに入った数/投げた数を表示
+    //チャージ
+    if (status == "charge") {
+        power += 0.1;
+        if (power > 20) power = 0;                                      //パワーが20を超えたら0に戻す
+        document.getElementById("power").value = power;                 //パワー表示プログレスバーに表示
+    }
+    //物理ワールドの更新
+    world.step(1/60);                                                   //60分の1秒ごとに物理ワールドを更新
+    renderer.render(scene, camera);
+    window.requestAnimationFrame(update);                               //アニメーションを行う
+}
+
+const startCharge = event => {                  //マウスボタンを押したとき
+    //チャージ開始
+    power = 0;
+    status = "charge";
+}
+
+const toss = event => {                         //マウスボタンを放したとき
+    //ボールを投げる
+    const ball = createObject("sphere", 0, 0, 0, 0.5, 0, 0, "#FF0000", 0.5);    //ボールは、半径0.5、重さ0.5、赤色の球
+    ball.body.allowSleep = true;
+    ball.body.position.set(cx, cy, cz);
+    const dir = getMouseDir(event);
+    ball.body.velocity.set(dir.x * power, dir.y * power, dir.z * power);        //マウスカーソルの方向にボールを投げる
+    balls.push(ball);
+    status = "ready";
+    cnt++;
+}
+
+const moveCamera = event => {           //マウスを動かしたとき
+    //カメラの向きを変更
+    const dir = getMouseDir(event);
+    camera.lookAt(new THREE.Vector3(dir.x * 15, dir.y * 15, dir.z * 15));
+}
+
+const getMouseDir = event => {
+    //マウスカーソルの方向を返す
+    const mouse = new THREE.Vector2();
+    const rect = event.target.getBoundingClientRect();
+    mouse.x = (event.clientX - rect.left) / width *2 -1;        //マウスの座標を－１～１に変換
+    mouse.y = (event.clientY - rect.top) / height * (-2) + 1;
+    const raycaster = new THREE.Raycaster();                    //カメラからマウス位置に向かう透明な線（レイキャスト）を作成
+    raycaster.setFromCamera(mouse, camera);
+    return raycaster.ray.direction;
+}
+</script>
+</head>
+<body onload= "init()">
+<p>ゴミ箱シュート</p>
+Power: <progress id="power" value="0" min="0" max="20"></progress>
+Balls: <span id="cnt"></span>
+<hr>
+<div id="renderArea"></div>
+</body>
+</html>
+
+
+
+
